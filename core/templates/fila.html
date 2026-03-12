@@ -68,6 +68,11 @@
 
 <body>
 
+    <!-- Botão de ativar som -->
+    <div id="aviso-som" style="background-color:#f4c430; color:#1a1a2e; padding:15px; text-align:center; font-weight:bold; font-size:1.1rem;">
+        🔔 Toque aqui para ativar som e notificações
+    </div>
+
     <!-- Container principal -->
     <div class="container py-4">
 
@@ -140,6 +145,24 @@
         const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
         const ws = new WebSocket(wsProtocol + window.location.host + '/ws/fila/');
 
+        let audioCtxGlobal = null;
+
+        document.getElementById('aviso-som').addEventListener('click', function() {
+            audioCtxGlobal = new AudioContext();
+            audioCtxGlobal.resume();
+            if ('Notification' in window) {
+                Notification.requestPermission().then(function(permission) {
+                    if (permission === 'granted') {
+                        document.getElementById('aviso-som').style.display = 'none';
+                    } else {
+                        document.getElementById('aviso-som').textContent = '⚠️ Permissão negada — ative nas configurações do celular';
+                    }
+                });
+            } else {
+                document.getElementById('aviso-som').style.display = 'none';
+            }
+        });
+
         ws.onmessage = function(e) {
             const data = JSON.parse(e.data);
             atualizarFila(data.fila, data.posicao_atual, data.chamados);
@@ -178,23 +201,30 @@
                 document.getElementById('posicao-numero').textContent = '📢';
                 document.getElementById('posicao-texto').textContent = 'Você foi chamado! Avance para frente!';
 
-                const ctx = new AudioContext();
-                const tocar = function(freq, inicio, duracao, volume) {
-                    const osc = ctx.createOscillator();
-                    const gain = ctx.createGain();
-                    osc.connect(gain);
-                    gain.connect(ctx.destination);
-                    osc.type = 'square';
-                    osc.frequency.value = freq;
-                    gain.gain.setValueAtTime(volume, ctx.currentTime + inicio);
-                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + inicio + duracao);
-                    osc.start(ctx.currentTime + inicio);
-                    osc.stop(ctx.currentTime + inicio + duracao);
-                };
+                if (audioCtxGlobal) {
+                    const tocar = function(freq, inicio, duracao, volume) {
+                        const osc = audioCtxGlobal.createOscillator();
+                        const gain = audioCtxGlobal.createGain();
+                        osc.connect(gain);
+                        gain.connect(audioCtxGlobal.destination);
+                        osc.type = 'square';
+                        osc.frequency.value = freq;
+                        gain.gain.setValueAtTime(volume, audioCtxGlobal.currentTime + inicio);
+                        gain.gain.exponentialRampToValueAtTime(0.001, audioCtxGlobal.currentTime + inicio + duracao);
+                        osc.start(audioCtxGlobal.currentTime + inicio);
+                        osc.stop(audioCtxGlobal.currentTime + inicio + duracao);
+                    };
+                    for (var i = 0; i < 6; i++) {
+                        tocar(1400, i * 0.4, 0.3, 1.5);
+                        tocar(900, i * 0.4 + 0.15, 0.15, 1.0);
+                    }
+                }
 
-                for (var i = 0; i < 6; i++) {
-                    tocar(1400, i * 0.4, 0.3, 1.5);
-                    tocar(900, i * 0.4 + 0.15, 0.15, 1.0);
+                if ('Notification' in window && Notification.permission === 'granted') {
+                    new Notification('🚕 TaxiFila', {
+                        body: 'Carro ' + carroNumero + ' — Avance para frente!',
+                        requireInteraction: true
+                    });
                 }
 
                 setTimeout(function() {
