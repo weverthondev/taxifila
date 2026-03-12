@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaxiFila — Fila</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #1a1a2e;
+            color: white;
+            min-height: 100vh;
+        }
+        .btn-taxi {
+            background-color: #f4c430;
+            color: #1a1a2e;
+            font-weight: bold;
+            border: none;
+            border-radius: 50px;
+            padding: 18px;
+            font-size: 1.5rem;
+        }
+        .btn-taxi:hover { background-color: #e6b800; color: #1a1a2e; }
+        .posicao-card {
+            background-color: #f4c430;
+            color: #1a1a2e;
+            border-radius: 20px;
+            padding: 30px;
+            text-align: center;
+        }
+        .posicao-numero {
+            font-size: 7rem;
+            font-weight: 800;
+            line-height: 1;
+        }
+        .card-dark {
+            background-color: #16213e;
+            border-radius: 20px;
+            border: none;
+        }
+        .offcanvas { background-color: #16213e; color: white; }
+        .offcanvas-title { color: #f4c430; font-weight: bold; }
+        .menu-item {
+            display: block;
+            padding: 15px 20px;
+            color: white;
+            text-decoration: none;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+            background-color: #1a1a2e;
+        }
+        .menu-item:hover { background-color: #0f3460; color: white; }
+        .menu-item-danger { color: #ff6b6b !important; }
+        @keyframes piscar {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(1.1); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        .carro-chamado {
+            animation: piscar 0.5s infinite;
+            background-color: #ff6b35 !important;
+            color: white !important;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Container principal -->
+    <div class="container py-4">
+
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2 class="fw-bold mb-0">🚕 TaxiFila</h2>
+                <small class="text-muted"><span id="contador-fila">0</span> carros na fila</small>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <span class="text-warning fw-bold">Carro {{ request.user.username }}</span>
+                <button class="btn btn-outline-light btn-sm rounded-pill" data-bs-toggle="offcanvas" data-bs-target="#menuLateral">⋯</button>
+            </div>
+        </div>
+
+        <!-- Posição na fila -->
+        <div class="posicao-card mb-4">
+            <p class="mb-1 fw-bold">Sua posição na fila</p>
+            <div class="posicao-numero" id="posicao-numero">—</div>
+            <p class="mt-2 mb-0" id="posicao-texto">Você não está na fila</p>
+        </div>
+
+        <!-- Botão entrar na fila -->
+        <div class="d-grid mb-4">
+            <button class="btn btn-taxi" onclick="entrarFila()">✅ Entrar na Fila</button>
+        </div>
+
+        <!-- Chamar carros -->
+        <div class="card-dark p-4 mb-4">
+            <h4 class="fw-bold mb-3 text-warning">📢 Chamar carros para frente</h4>
+            <div class="d-grid gap-2">
+                <button class="btn btn-taxi" onclick="chamarCarros(1)">Chamar 1 carro</button>
+                <button class="btn btn-taxi" onclick="chamarCarros(2)">Chamar 2 carros</button>
+                <button class="btn btn-taxi" onclick="chamarCarros(3)">Chamar 3 carros</button>
+            </div>
+        </div>
+
+        <!-- Fila atual -->
+        <div class="card-dark p-4">
+            <h4 class="fw-bold mb-3 text-warning">🚗 Fila atual</h4>
+            <div id="lista-fila" class="d-flex flex-wrap">
+                <p class="text-muted text-center">Nenhum carro na fila</p>
+            </div>
+        </div>
+
+    </div>
+    <!-- Fim container principal -->
+
+    <!-- Menu Lateral -->
+    <div class="offcanvas offcanvas-end" tabindex="-1" id="menuLateral">
+        <div class="offcanvas-header">
+            <h5 class="offcanvas-title">Menu</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
+        </div>
+        <div class="offcanvas-body">
+            <a href="#" class="menu-item" onclick="sairFila()">❌ Sair da Fila</a>
+            <a href="{% url 'sair' %}" class="menu-item menu-item-danger">🚪 Sair do App</a>
+            <hr style="border-color: #ffffff30;">
+            <h6 class="text-warning fw-bold mb-3">🕐 Últimos chamados</h6>
+            <div id="historico-lista">
+                <p class="text-muted">Nenhum chamado ainda</p>
+            </div>
+        </div>
+    </div>
+    <!-- Fim menu lateral -->
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const carroNumero = "{{ request.user.username }}";
+        const ws = new WebSocket('ws://' + window.location.host + '/ws/fila/');
+
+        ws.onmessage = function(e) {
+            const data = JSON.parse(e.data);
+            atualizarFila(data.fila, data.posicao_atual, data.chamados);
+            atualizarHistorico(data.historico);
+        };
+
+        function renderizarLista(fila) {
+            const listaFila = document.getElementById('lista-fila');
+            if (fila.length === 0) {
+                listaFila.innerHTML = '<p class="text-muted text-center">Nenhum carro na fila</p>';
+            } else {
+                var html = '';
+                for (var j = 0; j < fila.length; j++) {
+                    var c = fila[j];
+                    var bg = c.numero === carroNumero ? '#f4c430' : '#0f3460';
+                    var cor = c.numero === carroNumero ? '#1a1a2e' : 'white';
+                    var tempo = c.tempo ? '<br><small style="font-size:0.7rem;">' + c.tempo + '</small>' : '';
+                    html += '<div class="d-flex align-items-center me-2 mb-2">';
+                    html += '<span class="badge rounded-pill p-3" style="background-color:' + bg + '; color:' + cor + '; font-size:1rem;">';
+                    html += c.posicao + 'º - ' + c.numero + tempo;
+                    html += '</span></div>';
+                }
+                listaFila.innerHTML = html;
+            }
+        }
+
+        function atualizarFila(fila, posicaoAtual, chamados) {
+            chamados = chamados || [];
+            document.getElementById('contador-fila').textContent = fila.length;
+            renderizarLista(fila);
+
+            if (chamados.includes(carroNumero)) {
+                const card = document.querySelector('.posicao-card');
+                card.style.backgroundColor = '#ff6b6b';
+                card.style.color = 'white';
+                document.getElementById('posicao-numero').textContent = '📢';
+                document.getElementById('posicao-texto').textContent = 'Você foi chamado! Avance para frente!';
+
+                const ctx = new AudioContext();
+                const tocar = function(freq, inicio, duracao, volume) {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.type = 'square';
+                    osc.frequency.value = freq;
+                    gain.gain.setValueAtTime(volume, ctx.currentTime + inicio);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + inicio + duracao);
+                    osc.start(ctx.currentTime + inicio);
+                    osc.stop(ctx.currentTime + inicio + duracao);
+                };
+
+                for (var i = 0; i < 6; i++) {
+                    tocar(1400, i * 0.4, 0.3, 1.5);
+                    tocar(900, i * 0.4 + 0.15, 0.15, 1.0);
+                }
+
+                setTimeout(function() {
+                    card.style.backgroundColor = '#f4c430';
+                    card.style.color = '#1a1a2e';
+                    document.getElementById('posicao-numero').textContent = '—';
+                    document.getElementById('posicao-texto').textContent = 'Você não está na fila';
+                }, 5000);
+                return;
+            }
+
+            const posicaoNumero = document.getElementById('posicao-numero');
+            const posicaoTexto = document.getElementById('posicao-texto');
+            if (posicaoAtual > 0) {
+                posicaoNumero.textContent = posicaoAtual + 'º';
+                posicaoTexto.textContent = 'Você está na fila!';
+            } else {
+                posicaoNumero.textContent = '—';
+                posicaoTexto.textContent = 'Você não está na fila';
+            }
+        }
+
+        function atualizarHistorico(historico) {
+            const lista = document.getElementById('historico-lista');
+            if (!historico || historico.length === 0) {
+                lista.innerHTML = '<p class="text-muted">Nenhum chamado ainda</p>';
+                return;
+            }
+            var html = '';
+            for (var i = 0; i < historico.length; i++) {
+                var h = historico[i];
+                var carros = h.carros.split(',').map(function(e) { return e.split(':')[0]; }).join(', ');
+                var btnDesfazer = i < 3 ? '<button onclick="desfazer(' + h.id + ')" class="btn btn-sm btn-outline-warning rounded-pill" style="font-size:0.75rem;">Desfazer</button>' : '';
+                html += '<div class="mb-2 p-2 rounded" style="background-color:#1a1a2e;">';
+                html += '<div class="d-flex justify-content-between align-items-center">';
+                html += '<span style="font-size:0.95rem;">🚗 ' + carros + ' — ' + h.horario + '</span>';
+                html += btnDesfazer;
+                html += '</div></div>';
+            }
+            lista.innerHTML = html;
+        }
+
+        function desfazer(id) {
+            ws.send(JSON.stringify({acao: 'desfazer', historico_id: id}));
+        }
+
+        function entrarFila() {
+            ws.send(JSON.stringify({acao: 'entrar'}));
+        }
+
+        function sairFila() {
+            ws.send(JSON.stringify({acao: 'sair'}));
+        }
+
+        function chamarCarros(quantidade) {
+            ws.send(JSON.stringify({acao: 'chamar', quantidade: quantidade}));
+        }
+    </script>
+
+</body>
+</html>
